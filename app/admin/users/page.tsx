@@ -2,13 +2,13 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useAuth } from "@/contexts/auth-context"
-import { createUserByCoach, getAllUsers, deleteUserByCoach } from "@/lib/auth"
+import { createUserByCoach, getAllUsers, deleteUserByCoach, type User } from "@/lib/auth"
 import { UserPlus, Trash2, Users } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -16,8 +16,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 export default function UserManagementPage() {
   const { user } = useAuth()
   const router = useRouter()
-  const [users, setUsers] = useState(getAllUsers())
+  const [users, setUsers] = useState<User[]>([])
   const [isAddingUser, setIsAddingUser] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
   const [newUser, setNewUser] = useState({
     name: "",
     email: "",
@@ -28,12 +29,26 @@ export default function UserManagementPage() {
   const [success, setSuccess] = useState("")
 
   // Redirect if not a coach
-  if (!user || user.role !== "coach") {
-    router.push("/")
-    return null
-  }
+  useEffect(() => {
+    if (!user || user.role !== "coach") {
+      router.push("/")
+    }
+  }, [user, router])
 
-  const handleAddUser = (e: React.FormEvent) => {
+  useEffect(() => {
+    const loadUsers = async () => {
+      setIsLoading(true)
+      const fetchedUsers = await getAllUsers()
+      setUsers(fetchedUsers)
+      setIsLoading(false)
+    }
+
+    if (user?.role === "coach") {
+      loadUsers()
+    }
+  }, [user])
+
+  const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
     setSuccess("")
@@ -44,8 +59,14 @@ export default function UserManagementPage() {
         return
       }
 
-      createUserByCoach(newUser.name, newUser.email, newUser.password, newUser.role, user.id)
-      setUsers(getAllUsers())
+      if (!user) {
+        setError("You must be logged in as a coach")
+        return
+      }
+
+      await createUserByCoach(newUser.name, newUser.email, newUser.password, newUser.role, user.id)
+      const updatedUsers = await getAllUsers()
+      setUsers(updatedUsers)
       setSuccess(`User ${newUser.name} added successfully!`)
       setNewUser({ name: "", email: "", password: "", role: "member" })
       setIsAddingUser(false)
@@ -54,16 +75,26 @@ export default function UserManagementPage() {
     }
   }
 
-  const handleDeleteUser = (userId: string) => {
+  const handleDeleteUser = async (userId: string) => {
     if (!confirm("Are you sure you want to delete this user?")) return
 
     try {
-      deleteUserByCoach(userId, user.id)
-      setUsers(getAllUsers())
+      if (!user) {
+        setError("You must be logged in as a coach")
+        return
+      }
+
+      await deleteUserByCoach(userId, user.id)
+      const updatedUsers = await getAllUsers()
+      setUsers(updatedUsers)
       setSuccess("User deleted successfully")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete user")
     }
+  }
+
+  if (!user || user.role !== "coach") {
+    return null
   }
 
   return (
@@ -158,7 +189,9 @@ export default function UserManagementPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {users.length === 0 ? (
+            {isLoading ? (
+              <div className="text-center py-8 text-muted-foreground">Loading users...</div>
+            ) : users.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 No users yet. Add your first team member to get started.
               </div>
